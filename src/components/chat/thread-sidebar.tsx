@@ -5,13 +5,9 @@ import { ThreadItem } from "./thread-item";
 
 interface ThreadSidebarProps {
   userId: string;
-  activeThreadId?: string;
 }
 
-export async function ThreadSidebar({
-  userId,
-  activeThreadId,
-}: ThreadSidebarProps) {
+export async function ThreadSidebar({ userId }: ThreadSidebarProps) {
   const threads = await prisma.chatThread.findMany({
     where: { userId },
     orderBy: { updatedAt: "desc" },
@@ -35,7 +31,6 @@ export async function ThreadSidebar({
                 threadId={thread.id}
                 title={thread.title}
                 updatedAt={thread.updatedAt}
-                active={thread.id === activeThreadId}
               />
             ))}
           </div>

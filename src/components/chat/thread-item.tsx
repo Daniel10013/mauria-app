@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -43,16 +43,14 @@ interface ThreadItemProps {
   threadId: string;
   title: string;
   updatedAt: Date;
-  active: boolean;
 }
 
-export function ThreadItem({
-  threadId,
-  title,
-  updatedAt,
-  active,
-}: ThreadItemProps) {
+export function ThreadItem({ threadId, title, updatedAt }: ThreadItemProps) {
   const router = useRouter();
+  // O ativo é derivado do pathname no cliente: em navegação client-side o
+  // layout do servidor não re-renderiza, então uma prop vinda de lá fica stale.
+  const pathname = usePathname();
+  const active = pathname === `/chat/${threadId}`;
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [renameValue, setRenameValue] = useState(title);
