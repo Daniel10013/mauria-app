@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { RotateCcw } from "lucide-react";
 import { toast } from "sonner";
@@ -54,6 +54,7 @@ export function ChatRealtime({ threadId, initialPrompt }: ChatRealtimeProps) {
   const [retryable, setRetryable] = useState<{ message: string } | null>(null);
   const initialFiredRef = useRef(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [, startTransition] = useTransition();
 
   const sendMessage = useCallback(
     async (message: string) => {
@@ -117,9 +118,15 @@ export function ChatRealtime({ threadId, initialPrompt }: ChatRealtimeProps) {
           }
         }
 
-        setStreaming(null);
-        setPendingUser(null);
-        if (!errored) router.refresh();
+        // Limpa o estado otimista DENTRO da mesma transition do refresh.
+        // Assim o React mantém a mensagem em streaming visível até o
+        // MessageList re-renderizado do servidor (com a mensagem persistida)
+        // estar pronto — sem isso o chat fica vazio até a próxima interação.
+        startTransition(() => {
+          router.refresh();
+          setStreaming(null);
+          setPendingUser(null);
+        });
       } catch {
         toast.error(messageFor("network"));
         setRetryable({ message });
