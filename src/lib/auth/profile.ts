@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import type { Profile } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createClient } from "@/lib/supabase/server";
@@ -45,15 +46,21 @@ export function isOnboardingComplete(profile: Profile): boolean {
 /**
  * Server-only: pega o usuário da sessão atual e retorna o profile (criando
  * se necessário). Devolve `null` se não houver sessão.
+ *
+ * Memoizado por request com React `cache()`: layout e página chamam isto na
+ * mesma renderização — sem o cache eram 2+ idas ao Supabase/Postgres por
+ * navegação.
  */
-export async function getCurrentProfile(): Promise<Profile | null> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user || !user.email) return null;
-  return getOrCreateProfile(user.id, user.email);
-}
+export const getCurrentProfile = cache(
+  async (): Promise<Profile | null> => {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user || !user.email) return null;
+    return getOrCreateProfile(user.id, user.email);
+  }
+);
 
 /** Profile + time favorito já resolvido (com crest se a API responder). */
 export interface ResolvedProfile extends Profile {

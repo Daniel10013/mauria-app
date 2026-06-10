@@ -41,9 +41,12 @@ export async function detectIntent(userMessage: string): Promise<Intent> {
     return { type: "general" };
   }
 
+  // attempts: 1 — isto roda ANTES do stream começar; retries com backoff
+  // aqui adicionavam até ~11s de tela parada. Falhou → trata como geral.
   const result = await generateStructured<StructuredResponse>({
     prompt: trimmed,
     schemaDescription: INTENT_PREDICTION_PROMPT,
+    attempts: 1,
   });
 
   if (!result.ok) {

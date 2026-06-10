@@ -7,8 +7,10 @@ import { getOrCreateProfile } from "@/lib/auth/profile";
 import { getTeamById } from "@/lib/data/teams";
 import {
   buildGuruSystemPrompt,
+  INFO_CONTEXT_INSTRUCTIONS,
   PREDICTION_CONTEXT_INSTRUCTIONS,
 } from "@/lib/llm/prompts";
+import { buildInfoContext } from "@/lib/football/context";
 import { streamGuruReply, type GeminiMessage } from "@/lib/llm/gemini";
 import { detectIntent } from "@/lib/llm/intent";
 import { resolveTeam } from "@/lib/football/resolver";
@@ -102,10 +104,21 @@ export async function POST(request: NextRequest) {
 
   const { threadId, message } = parsedBody;
 
-  const thread = await prisma.chatThread.findUnique({
-    where: { id: threadId },
-    select: { id: true, userId: true },
-  });
+  // Queries independentes em paralelo (perf): thread, profile e histórico.
+  // Os dados de histórico só são usados depois das checagens de acesso.
+  const [thread, profile, previousMessages] = await Promise.all([
+    prisma.chatThread.findUnique({
+      where: { id: threadId },
+      select: { id: true, userId: true },
+    }),
+    getOrCreateProfile(user.id, user.email),
+    prisma.chatMessage.findMany({
+      where: { threadId },
+      orderBy: { createdAt: "asc" },
+      take: HISTORY_LIMIT,
+    }),
+  ]);
+
   if (!thread) {
     return NextResponse.json(
       { ok: false, error: "Conversa não encontrada." },
@@ -119,16 +132,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const profile = await getOrCreateProfile(user.id, user.email);
   const team = profile.favoriteTeamId
     ? getTeamById(profile.favoriteTeamId)
     : null;
 
-  const previousMessages = await prisma.chatMessage.findMany({
-    where: { threadId },
-    orderBy: { createdAt: "asc" },
-    take: HISTORY_LIMIT,
-  });
   const history: GeminiMessage[] = previousMessages
     .filter((m) => m.role === "user" || m.role === "assistant")
     .map((m) => ({
@@ -136,21 +143,31 @@ export async function POST(request: NextRequest) {
       content: m.content,
     }));
 
-  const userMessageRow = await prisma.chatMessage.create({
-    data: { threadId, role: "user", content: message },
-    select: { id: true },
-  });
+  // Gravação da mensagem do usuário e pipeline de previsão em paralelo
+  // (perf): nenhum depende do outro. Falha do pipeline é silenciosa — segue
+  // como conversa normal.
+  const [userMessageRow, prediction] = await Promise.all([
+    prisma.chatMessage.create({
+      data: { threadId, role: "user", content: message },
+      select: { id: true },
+    }),
+    runPredictionPipeline(message).catch((error: unknown) => {
+      logger.warn("prediction.pipeline.failed", {
+        threadId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }),
+  ]);
 
-  // Tenta rodar o pipeline de previsão antes do stream. Falha silenciosa
-  // — se nada funcionar, segue como conversa normal.
-  let prediction: PredictionPipelineResult | null = null;
-  try {
-    prediction = await runPredictionPipeline(message);
-  } catch (error) {
-    logger.warn("prediction.pipeline.failed", {
-      threadId,
-      error: error instanceof Error ? error.message : String(error),
-    });
+  // Sem previsão: tenta contexto factual atual (jogos de hoje/amanhã,
+  // tabela). Detecção por regex, sem custo de LLM; falha → segue sem dados.
+  let infoContext: string | null = null;
+  if (!prediction) {
+    infoContext = await buildInfoContext(
+      message,
+      profile.followedLeagues
+    ).catch(() => null);
   }
 
   const baseSystemPrompt = buildGuruSystemPrompt({
@@ -161,7 +178,9 @@ export async function POST(request: NextRequest) {
   });
   const systemPrompt = prediction
     ? `${baseSystemPrompt}\n${PREDICTION_CONTEXT_INSTRUCTIONS}`
-    : baseSystemPrompt;
+    : infoContext
+      ? `${baseSystemPrompt}\n${INFO_CONTEXT_INSTRUCTIONS}`
+      : baseSystemPrompt;
 
   const isFirstExchange = previousMessages.length === 0;
   const encoder = new TextEncoder();
@@ -182,28 +201,31 @@ export async function POST(request: NextRequest) {
           systemPrompt,
           history,
           userMessage: message,
-          contextData: prediction?.narrativeContext,
+          contextData: prediction?.narrativeContext ?? infoContext ?? undefined,
         })) {
           fullText += chunk;
           controller.enqueue(encoder.encode(sse({ type: "chunk", text: chunk })));
         }
 
-        const assistantMessageRow = await prisma.chatMessage.create({
-          data: {
-            threadId,
-            role: "assistant",
-            content: fullText,
-            metadata: prediction
-              ? { predictionCard: prediction.card as unknown as object }
-              : undefined,
-          },
-          select: { id: true },
-        });
-
-        await prisma.chatThread.update({
-          where: { id: threadId },
-          data: { updatedAt: new Date() },
-        });
+        // Gravações finais em paralelo (perf): o evento "done" só precisa do
+        // id da mensagem; o update do thread é independente.
+        const [assistantMessageRow] = await Promise.all([
+          prisma.chatMessage.create({
+            data: {
+              threadId,
+              role: "assistant",
+              content: fullText,
+              metadata: prediction
+                ? { predictionCard: prediction.card as unknown as object }
+                : undefined,
+            },
+            select: { id: true },
+          }),
+          prisma.chatThread.update({
+            where: { id: threadId },
+            data: { updatedAt: new Date() },
+          }),
+        ]);
 
         controller.enqueue(
           encoder.encode(

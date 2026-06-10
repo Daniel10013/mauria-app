@@ -91,6 +91,19 @@ Você vai receber um bloco === DADOS DA PREVISÃO === no contexto. Siga estas re
 - Continua sendo comentarista MaurIA: tom, gírias, sem exageros. Máximo 1 emoji.`;
 
 /**
+ * Bloco extra anexado ao system prompt quando o handler injeta dados factuais
+ * atuais (jogos do dia / tabela) vindos da Football-Data.
+ */
+export const INFO_CONTEXT_INSTRUCTIONS = `
+
+INSTRUÇÕES ESPECÍFICAS PARA ESTA RESPOSTA (DADOS ATUAIS):
+Você vai receber um bloco === DADOS ATUAIS === no contexto, com jogos e/ou tabela vindos de API oficial atualizada.
+- Esses dados são a verdade. Use-os literalmente e IGNORE qualquer memória sua que conflite (elencos, técnicos e fases de temporada do seu treino estão desatualizados).
+- Não invente jogos, horários ou posições que não estejam no bloco.
+- Se o bloco indicar que não há jogos ou que a competição não está coberta, diga isso com naturalidade em vez de chutar.
+- Narre como comentarista: pode destacar 2-3 jogos mais quentes, mas os fatos vêm do bloco.`;
+
+/**
  * Prompt usado por `detectIntent` para extrair os dois times de uma pergunta
  * de previsão. Retorno deve ser JSON estrito.
  */

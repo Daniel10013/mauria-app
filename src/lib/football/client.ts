@@ -152,6 +152,24 @@ export function getCompetitionMatches(
   );
 }
 
+/**
+ * Jogos por intervalo de datas (YYYY-MM-DD), cruzando todas as competições
+ * cobertas pelo plano. Usado pelo contexto de "jogos de hoje/amanhã" do chat.
+ */
+export function getMatchesByDate(
+  dateFrom: string,
+  dateTo: string
+): Promise<Result<FdMatchesResponse>> {
+  return withResult(
+    `football:matches:${dateFrom}:${dateTo}`,
+    TTL.dateMatches,
+    () =>
+      rawFetch<FdMatchesResponse>(
+        `/matches?dateFrom=${dateFrom}&dateTo=${dateTo}`
+      )
+  );
+}
+
 export function getMatch(matchId: number): Promise<Result<FdMatch>> {
   return withResult(`football:match:${matchId}`, TTL.match, () =>
     rawFetch<FdMatch>(`/matches/${matchId}`)

@@ -13,7 +13,9 @@ import { err, ok, type Result } from "@/lib/result";
 // Histórico: Llama 3.3 70B → Qwen 2.5 72B (removido) → Qwen3-next 80B
 // (também 429) → GPT-OSS 120B. Fallbacks: nvidia/nemotron-3-super-120b-a12b:free,
 // nousresearch/hermes-3-llama-3.1-405b:free.
-const MODEL_NAME = "openai/gpt-oss-120b:free";
+// Override via env (LLM_MODEL) permite trocar pra um modelo mais rápido do
+// OpenRouter (ex.: "google/gemini-2.5-flash") sem mudança de código.
+const MODEL_NAME = process.env.LLM_MODEL?.trim() || "openai/gpt-oss-120b:free";
 
 function getClient(): OpenAI {
   const key = process.env.OPENROUTER_API_KEY;
@@ -123,6 +125,12 @@ export async function generateGuruReply(
 interface GenerateStructuredArgs {
   prompt: string;
   schemaDescription: string;
+  /**
+   * Tentativas em caso de 429/5xx (default 3). Use 1 em caminhos sensíveis a
+   * latência (ex.: detecção de intenção antes do stream), onde esperar
+   * 1s+3s+7s de backoff é pior do que seguir sem o resultado.
+   */
+  attempts?: number;
 }
 
 /**
@@ -151,7 +159,7 @@ export async function generateStructured<T>(
           temperature: 0,
           response_format: { type: "json_object" },
         }),
-      3,
+      args.attempts ?? 3,
       "llm.structured"
     );
 
