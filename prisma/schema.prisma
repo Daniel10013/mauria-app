@@ -1,0 +1,68 @@
+// Prisma schema. Modelos vão sendo adicionados a cada milestone.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// Espelha auth.users do Supabase. id é igual a auth.users.id.
+model Profile {
+  id                    String    @id @db.Uuid
+  email                 String    @unique
+  displayName           String?
+  favoriteTeamId        Int?
+  followedLeagues       String[]  @default([])
+  watchedTeams          Int[]     @default([])
+  watchedPlayers        String[]  @default([])
+  style                 String?   @default("balanced")
+  onboardingCompletedAt DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  threads ChatThread[]
+
+  @@map("profiles")
+}
+
+model ChatThread {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  title     String   @default("Nova conversa")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     Profile       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("chat_threads")
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  threadId  String   @db.Uuid
+  role      String
+  content   String
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  thread ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+  @@map("chat_messages")
+}
+
+model ApiCache {
+  key       String   @id
+  payload   Json
+  fetchedAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([expiresAt])
+  @@map("api_cache")
+}
